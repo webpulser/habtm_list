@@ -312,4 +312,4 @@ module RailsExtensions
   end
 end
 
-ActiveRecord::Base.send(:include,RailsExtentions::HabtmList)
+ActiveRecord::Base.send(:include,RailsExtensions::HabtmList)
