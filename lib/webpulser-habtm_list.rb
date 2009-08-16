@@ -6,8 +6,7 @@ module RailsExtensions
       base.extend(ClassMethods)
       base.class_eval do
         class << self
-          alias_method :has_and_belongs_to_many_without_list_handling, :has_and_belongs_to_many
-          alias_method :has_and_belongs_to_many, :has_and_belongs_to_many_with_list_handling
+          alias_method_chain :has_and_belongs_to_many, :list_handling
         end
       end
     end
@@ -19,6 +18,7 @@ module RailsExtensions
 
           after_add_callback_symbol = "maintain_list_after_add_for_#{name}".to_sym
           before_remove_callback_symbol = "maintain_list_before_remove_for_#{name}".to_sym
+          name_ids_symbol = ":#{name.to_s.singularize}_ids"
           
           options[:after_add] ||= []
           options[:after_add] << after_add_callback_symbol
@@ -33,6 +33,25 @@ module RailsExtensions
             
             def #{before_remove_callback_symbol}(removed)
               self.#{name}.remove_from_list(removed)
+            end
+
+            alias_method_chain :update_attributes, #{name_ids_symbol}
+
+            def update_attributes_with_#{name_ids_symbol}(params)
+              if params[#{name_ids_symbol}].kind_of?(Array)
+                @list_ids ||= {}
+                @list_ids[#{name_ids_symbol}] = params[#{name_ids_symbol}].reject(&:blank?)
+              end
+
+              update_attributes_without_#{name_ids_symbol}(params)
+            end
+
+            after_save :reset_#{name}_position
+
+            def reset_#{name}_position
+              if @list_ids && @list_ids[#{name_ids_symbol}]
+                self.#{name}.reset_positions_by_ids @list_ids[#{name_ids_symbol}]
+              end
             end
           EOV
         end
@@ -146,7 +165,15 @@ module RailsExtensions
         end
       end
           
-      
+       def reset_positions_by_ids(ids = self.collect(&:id))
+        ids.each_with_index do |id, i|
+          connection.update(
+            "UPDATE #{join_table} SET #{position_column} = #{i} " +
+            "WHERE #{foreign_key} = #{@owner.id} AND #{list_item_foreign_key} = #{id}"
+          ) if id.to_i != 0
+        end
+      end
+     
   
       private
         def position_column
@@ -284,3 +311,5 @@ module RailsExtensions
     end
   end
 end
+
+ActiveRecord::Base.send(:include,RailsExtentions::HabtmList)
