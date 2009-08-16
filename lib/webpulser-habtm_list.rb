@@ -36,8 +36,6 @@ module RailsExtensions
               self.#{name}.remove_from_list(removed)
             end
 
-            alias_method_chain :update_attributes, #{name_ids_symbol}
-
             def update_attributes_with_#{name_ids}(params)
               if params[#{name_ids_symbol}].kind_of?(Array)
                 @list_ids ||= {}
@@ -47,6 +45,7 @@ module RailsExtensions
               update_attributes_without_#{name_ids}(params)
             end
 
+            alias_method_chain :update_attributes, #{name_ids_symbol}
             after_save :reset_#{name}_position
 
             def reset_#{name}_position
