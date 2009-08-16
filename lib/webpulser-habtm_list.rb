@@ -18,7 +18,8 @@ module RailsExtensions
 
           after_add_callback_symbol = "maintain_list_after_add_for_#{name}".to_sym
           before_remove_callback_symbol = "maintain_list_before_remove_for_#{name}".to_sym
-          name_ids_symbol = ":#{name.to_s.singularize}_ids"
+          name_ids = "#{name.to_s.singularize}_ids"
+          name_ids_symbol = ":#{name_ids}"
           
           options[:after_add] ||= []
           options[:after_add] << after_add_callback_symbol
@@ -37,13 +38,13 @@ module RailsExtensions
 
             alias_method_chain :update_attributes, #{name_ids_symbol}
 
-            def update_attributes_with_#{name_ids_symbol}(params)
+            def update_attributes_with_#{name_ids}(params)
               if params[#{name_ids_symbol}].kind_of?(Array)
                 @list_ids ||= {}
                 @list_ids[#{name_ids_symbol}] = params[#{name_ids_symbol}].reject(&:blank?)
               end
 
-              update_attributes_without_#{name_ids_symbol}(params)
+              update_attributes_without_#{name_ids}(params)
             end
 
             after_save :reset_#{name}_position
