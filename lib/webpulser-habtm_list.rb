@@ -205,7 +205,7 @@ module RailsExtensions
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = #{position} " +
             "WHERE #{foreign_key} = #{@owner.id} AND #{list_item_foreign_key} = #{item.id}"
-          )
+          ) if @owner.id
           if @target
             obj = @target.find {|obj| obj.id == item.id}
             obj[position_column] = position if obj
