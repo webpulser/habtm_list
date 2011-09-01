@@ -1,6 +1,6 @@
 module RailsExtensions
   module HabtmList
-  
+
     def self.append_features(base) #:nodoc:
       super
       base.extend(ClassMethods)
@@ -20,7 +20,7 @@ module RailsExtensions
           before_remove_callback_symbol = "maintain_list_before_remove_for_#{name}".to_sym
           name_ids = "#{name.to_s.singularize}_ids"
           name_ids_symbol = ":#{name_ids}"
-          
+
           options[:after_add] ||= []
           options[:after_add] << after_add_callback_symbol
 
@@ -31,7 +31,7 @@ module RailsExtensions
             def #{after_add_callback_symbol}(added)
               self.#{name}.add_to_list_bottom(added)
             end
-            
+
             def #{before_remove_callback_symbol}(removed)
               self.#{name}.remove_from_list(removed)
             end
@@ -59,7 +59,7 @@ module RailsExtensions
         has_and_belongs_to_many_without_list_handling(name, options, &extension)
       end
     end
-      
+
     module AssociationListMethods
       def move_to_position(item, position)
         return if !in_list?(item) || position.to_i == list_position(item)
@@ -69,7 +69,7 @@ module RailsExtensions
         end
         resort_array
       end
-  
+
       def move_lower(item)
         list_item_class.transaction do
           lower = lower_item(item)
@@ -79,7 +79,7 @@ module RailsExtensions
         end
         resort_array
       end
-  
+
       def move_higher(item)
         list_item_class.transaction do
           higher = higher_item(item)
@@ -89,7 +89,7 @@ module RailsExtensions
         end
         resort_array
       end
-  
+
       def move_to_bottom(item)
         return unless in_list?(item)
         list_item_class.transaction do
@@ -98,7 +98,7 @@ module RailsExtensions
         end
         resort_array
       end
-  
+
       def move_to_top(item)
         return unless in_list?(item)
         list_item_class.transaction do
@@ -117,11 +117,11 @@ module RailsExtensions
       def first?(item)
         item == self.first
       end
-  
+
       def last?(item)
         item == self.last
       end
-  
+
       def higher_item(item)
         return nil unless in_list?(item)
         self.find(:first, :conditions => "#{position_column} = #{(list_position(item) - 1).to_s}")
@@ -137,13 +137,13 @@ module RailsExtensions
       end
 
       def add_to_list_bottom(item)
-        item.save! if item.id.nil? # Rails 2.0.2 - Callbacks don't save first on association.create() 
+        item.save! if item.id.nil? # Rails 2.0.2 - Callbacks don't save first on association.create()
         list_item_class.transaction do
           assume_bottom_position(item)
         end
         resort_array
       end
-      
+
       def add_to_list_top(item)
         list_item_class.transaction do
           increment_positions_on_all_items
@@ -151,7 +151,7 @@ module RailsExtensions
         end
         resort_array
       end
-      
+
       # "First aid" method in case someone shifts the array around outside these methods, or
       # the positions in the joins table go totally out of whack.  Don't use it for
       # simple ordering because it's inefficient.
@@ -160,42 +160,50 @@ module RailsExtensions
           item = self[i]
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = #{i} " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{list_item_foreign_key} = #{item.id}"
+            "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{item.id}"
           )
         end
       end
-          
+
        def reset_positions_by_ids(ids = self.collect(&:id))
         ids.each_with_index do |id, i|
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = #{i} " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{list_item_foreign_key} = #{id}"
+            "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{id}"
           ) if id.to_i != 0
         end
       end
-     
-  
+
+
       private
         def position_column
-          @reflection.options[:order] || 'position'
+          proxy_association.reflection.options[:order] || 'position'
         end
-        
+
         def list_item_class
-          @reflection.klass
+          proxy_association.reflection.klass
         end
-        
+
+        def owner
+          proxy_association.owner
+        end
+
+        def target
+          proxy_association.target
+        end
+
         def join_table
-          @reflection.options[:join_table]
+          proxy_association.reflection.options[:join_table]
         end
-        
+
         def foreign_key
-          @reflection.primary_key_name
+          proxy_association.reflection.primary_key_name
         end
-        
+
         def list_item_foreign_key
-          @reflection.association_foreign_key
+          proxy_association.reflection.association_foreign_key
         end
-        
+
         def list_position(item)
           self.index(item)
         end
@@ -204,10 +212,10 @@ module RailsExtensions
         def set_position(item, position)
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = #{position} " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{list_item_foreign_key} = #{item.id}"
-          ) if @owner.id
-          if @target
-            obj = @target.find {|obj| obj.id == item.id}
+            "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{item.id}"
+          ) if owner.id
+          if target
+            obj = target.find {|obj| obj.id == item.id}
             obj[position_column] = position if obj
           end
         end
@@ -224,10 +232,10 @@ module RailsExtensions
           return unless in_list?(item)
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = #{position_column} + (#{increment}) " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{list_item_foreign_key} = #{item.id}"
+            "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{item.id}"
           )
-          if @target
-            obj = @target.find {|obj| obj.id == item.id}
+          if target
+            obj = target.find {|obj| obj.id == item.id}
             obj[position_column] = obj[position_column].to_i + increment if obj
           end
         end
@@ -244,24 +252,24 @@ module RailsExtensions
         def decrement_positions_on_higher_items(position)
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = (#{position_column} - 1) " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{position_column} <= #{position}"
+            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} <= #{position}"
           )
-          @target.each { |obj|
+          target.each { |obj|
             obj[position_column] = obj[position_column].to_i - 1 if in_list?(obj) && obj[position_column].to_i <= position
-          } if @target
+          } if target
         end
-    
+
         # This has the effect of moving all the lower items up one.
         def decrement_positions_on_lower_items(item)
           return unless in_list?(item)
           position = list_position(item)
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = (#{position_column} - 1) " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{position_column} > #{position}"
+            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} > #{position}"
           )
-          @target.each { |obj|
+          target.each { |obj|
             obj[position_column] = obj[position_column].to_i - 1 if in_list?(obj) && obj[position_column].to_i > position
-          } if @target
+          } if target
         end
 
         # This has the effect of moving all the higher items down one.
@@ -270,32 +278,32 @@ module RailsExtensions
           position = list_position(item)
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{position_column} < #{position}"
+            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} < #{position}"
           )
-          @target.each { |obj|
+          target.each { |obj|
             obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj) && obj[position_column].to_i < position
-          } if @target
+          } if target
         end
 
         # This has the effect of moving all the lower items down one.
         def increment_positions_on_lower_items(position)
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
-            "WHERE #{foreign_key} = #{@owner.id} AND #{position_column} >= #{position}"
+            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} >= #{position}"
           )
-          @target.each { |obj|
+          target.each { |obj|
             obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj) && obj[position_column].to_i >= position
-          } if @target
+          } if target
         end
 
         def increment_positions_on_all_items
           connection.update(
             "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
-            "WHERE #{foreign_key} = #{@owner.id}"
+            "WHERE #{foreign_key} = #{owner.id}"
           )
-          @target.each { |obj|
+          target.each { |obj|
             obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj)
-          } if @target
+          } if target
         end
 
         def insert_at_position(item, position)
@@ -303,11 +311,11 @@ module RailsExtensions
           increment_positions_on_lower_items(position)
           set_position(item, position)
         end
-        
+
         # called after changing position values so the array reflects the updated ordering
         def resort_array
-          @target.sort! {|x,y| x[position_column].to_i <=> y[position_column].to_i} if @target
-        end      
+          target.sort! {|x,y| x[position_column].to_i <=> y[position_column].to_i} if target
+        end
     end
   end
 end
