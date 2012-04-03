@@ -62,12 +62,60 @@ module RailsExtensions
 
     module AssociationListMethods
       def move_to_position(item, position)
-        return if !in_list?(item) || position.to_i == list_position(item)
+        #return if !in_list?(item) || position.to_i == list_position(item)
         list_item_class.transaction do
           remove_from_list(item)
+          decrement_positions_on_lower_items(item)
           insert_at_position(item, position)
         end
         resort_array
+      end
+
+      # should only be called externally from the before_remove callback
+      def remove_from_list(item)
+        item[position_column] = nil
+      end
+
+      def insert_at_position(item, position)
+        increment_positions_on_lower_items(position)
+        set_position(item, position)
+      end
+
+      # This has the effect of moving all the lower items up one.
+      def decrement_positions_on_lower_items(item)
+        return unless in_list?(item)
+        position = list_position(item)
+        connection.update(
+          "UPDATE #{join_table} SET #{position_column} = (#{position_column} - 1) " +
+          "WHERE #{foreign_key} = #{owner.id} AND #{position_column} > #{position}"
+        )
+        target.each { |obj|
+          obj[position_column] = obj[position_column].to_i - 1 if in_list?(obj) && obj[position_column].to_i > position
+        } if target
+      end
+
+      # This has the effect of moving all the higher items down one.
+      def increment_positions_on_higher_items(item)
+        return unless in_list?(item)
+        position = list_position(item)
+        connection.update(
+          "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
+          "WHERE #{foreign_key} = #{owner.id} AND #{position_column} < #{position}"
+        )
+        target.each { |obj|
+          obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj) && obj[position_column].to_i < position
+        } if target
+      end
+
+      def set_position(item, position)
+        connection.update(
+          "UPDATE #{join_table} SET #{position_column} = #{position} " +
+          "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{item.id}"
+        ) if owner.id
+        if target
+          obj = target.find {|obj| obj.id == item.id}
+          obj[position_column] = position if obj
+        end
       end
 
       def move_lower(item)
@@ -106,12 +154,6 @@ module RailsExtensions
           assume_top_position(item)
         end
         resort_array
-      end
-
-      # should only be called externally from the before_remove callback
-      def remove_from_list(item)
-        decrement_positions_on_lower_items(item) if in_list?(item)
-        item[position_column] = nil
       end
 
       def first?(item)
@@ -174,148 +216,102 @@ module RailsExtensions
         end
       end
 
+      def position_column
+        proxy_association.reflection.options[:order] || 'position'
+      end
 
-      private
-        def position_column
-          proxy_association.reflection.options[:order] || 'position'
+      def list_item_class
+        proxy_association.reflection.klass
+      end
+
+      def owner
+        proxy_association.owner
+      end
+
+      def target
+        proxy_association.target
+      end
+
+      def join_table
+        proxy_association.reflection.options[:join_table]
+      end
+
+      def foreign_key
+        proxy_association.reflection.primary_key_name
+      end
+
+      def list_item_foreign_key
+        proxy_association.reflection.association_foreign_key
+      end
+
+      def list_position(item)
+        self.index(item)
+      end
+
+      def assume_bottom_position(item)
+        set_position(item, self.length - 1)
+      end
+
+      def assume_top_position(item)
+        set_position(item, 0)
+      end
+
+      def increment_position_by(item, increment)
+        return unless in_list?(item)
+        connection.update(
+          "UPDATE #{join_table} SET #{position_column} = #{position_column} + (#{increment}) " +
+          "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{item.id}"
+        )
+        if target
+          obj = target.find {|obj| obj.id == item.id}
+          obj[position_column] = obj[position_column].to_i + increment if obj
         end
+      end
 
-        def list_item_class
-          proxy_association.reflection.klass
-        end
+      def increment_position(item)
+        increment_position_by(item, 1)
+      end
 
-        def owner
-          proxy_association.owner
-        end
+      def decrement_position(item)
+        increment_position_by(item, -1)
+      end
 
-        def target
-          proxy_association.target
-        end
+      # This has the effect of moving all the higher items up one.
+      def decrement_positions_on_higher_items(position)
+        connection.update(
+          "UPDATE #{join_table} SET #{position_column} = (#{position_column} - 1) " +
+          "WHERE #{foreign_key} = #{owner.id} AND #{position_column} <= #{position}"
+        )
+        target.each { |obj|
+          obj[position_column] = obj[position_column].to_i - 1 if in_list?(obj) && obj[position_column].to_i <= position
+        } if target
+      end
 
-        def join_table
-          proxy_association.reflection.options[:join_table]
-        end
+      # This has the effect of moving all the lower items down one.
+      def increment_positions_on_lower_items(position)
+        connection.update(
+          "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
+          "WHERE #{foreign_key} = #{owner.id} AND #{position_column} >= #{position}"
+        )
+        target.each { |obj|
+          obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj) && obj[position_column].to_i >= position
+        } if target
+      end
 
-        def foreign_key
-          proxy_association.reflection.primary_key_name
-        end
+      def increment_positions_on_all_items
+        connection.update(
+          "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
+          "WHERE #{foreign_key} = #{owner.id}"
+        )
+        target.each { |obj|
+          obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj)
+        } if target
+      end
 
-        def list_item_foreign_key
-          proxy_association.reflection.association_foreign_key
-        end
-
-        def list_position(item)
-          self.index(item)
-        end
-
-
-        def set_position(item, position)
-          connection.update(
-            "UPDATE #{join_table} SET #{position_column} = #{position} " +
-            "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{item.id}"
-          ) if owner.id
-          if target
-            obj = target.find {|obj| obj.id == item.id}
-            obj[position_column] = position if obj
-          end
-        end
-
-        def assume_bottom_position(item)
-          set_position(item, self.length - 1)
-        end
-
-        def assume_top_position(item)
-          set_position(item, 0)
-        end
-
-        def increment_position_by(item, increment)
-          return unless in_list?(item)
-          connection.update(
-            "UPDATE #{join_table} SET #{position_column} = #{position_column} + (#{increment}) " +
-            "WHERE #{foreign_key} = #{owner.id} AND #{list_item_foreign_key} = #{item.id}"
-          )
-          if target
-            obj = target.find {|obj| obj.id == item.id}
-            obj[position_column] = obj[position_column].to_i + increment if obj
-          end
-        end
-
-        def increment_position(item)
-          increment_position_by(item, 1)
-        end
-
-        def decrement_position(item)
-          increment_position_by(item, -1)
-        end
-
-        # This has the effect of moving all the higher items up one.
-        def decrement_positions_on_higher_items(position)
-          connection.update(
-            "UPDATE #{join_table} SET #{position_column} = (#{position_column} - 1) " +
-            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} <= #{position}"
-          )
-          target.each { |obj|
-            obj[position_column] = obj[position_column].to_i - 1 if in_list?(obj) && obj[position_column].to_i <= position
-          } if target
-        end
-
-        # This has the effect of moving all the lower items up one.
-        def decrement_positions_on_lower_items(item)
-          return unless in_list?(item)
-          position = list_position(item)
-          connection.update(
-            "UPDATE #{join_table} SET #{position_column} = (#{position_column} - 1) " +
-            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} > #{position}"
-          )
-          target.each { |obj|
-            obj[position_column] = obj[position_column].to_i - 1 if in_list?(obj) && obj[position_column].to_i > position
-          } if target
-        end
-
-        # This has the effect of moving all the higher items down one.
-        def increment_positions_on_higher_items(item)
-          return unless in_list?(item)
-          position = list_position(item)
-          connection.update(
-            "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
-            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} < #{position}"
-          )
-          target.each { |obj|
-            obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj) && obj[position_column].to_i < position
-          } if target
-        end
-
-        # This has the effect of moving all the lower items down one.
-        def increment_positions_on_lower_items(position)
-          connection.update(
-            "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
-            "WHERE #{foreign_key} = #{owner.id} AND #{position_column} >= #{position}"
-          )
-          target.each { |obj|
-            obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj) && obj[position_column].to_i >= position
-          } if target
-        end
-
-        def increment_positions_on_all_items
-          connection.update(
-            "UPDATE #{join_table} SET #{position_column} = (#{position_column} + 1) " +
-            "WHERE #{foreign_key} = #{owner.id}"
-          )
-          target.each { |obj|
-            obj[position_column] = obj[position_column].to_i + 1 if in_list?(obj)
-          } if target
-        end
-
-        def insert_at_position(item, position)
-          remove_from_list(item)
-          increment_positions_on_lower_items(position)
-          set_position(item, position)
-        end
-
-        # called after changing position values so the array reflects the updated ordering
-        def resort_array
-          target.sort! {|x,y| x[position_column].to_i <=> y[position_column].to_i} if target
-        end
+      # called after changing position values so the array reflects the updated ordering
+      def resort_array
+        target.sort! {|x,y| x[position_column].to_i <=> y[position_column].to_i} if target
+      end
     end
   end
 end
