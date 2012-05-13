@@ -12,6 +12,6 @@ Gem::Specification.new do |s|
   s.summary = 'has_and_belongs_to_many list-like'
   s.description = 'Adds list-like position functionality to Rails has_and_belongs_to_many associations'
   s.files = %w(README MIT-LICENSE Rakefile lib/webpulser-habtm_list.rb)
-  s.add_dependency 'activerecord', '~> 3.1.0'
+  s.add_dependency 'activerecord', '>= 3.1.0'
   s.has_rdoc = false
 end
